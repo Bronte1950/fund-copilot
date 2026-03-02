@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(copy .env.example .env)",
+      "Bash(docker info --format \"{{.ServerVersion}}\")",
+      "Bash(docker compose up -d)",
+      "Bash(python -m venv \"c:/dev/repos/fund-copilot/.venv\")",
+      "Bash(.venv/Scripts/pip install -e \".[dev]\")",
+      "Bash(docker compose -f \"c:/dev/repos/fund-copilot/docker-compose.yml\" ps)",
+      "Bash(python -m json.tool)"
+    ]
+  }
+}

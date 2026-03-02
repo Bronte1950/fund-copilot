@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS custom properties — mirrors tailwind.config.js for use in vanilla CSS */
+:root {
+  --color-bg: #FAFAF8;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #1A1A2E;
+  --color-text-secondary: #6B7280;
+  --color-navy: #1E3A5F;
+  --color-gold: #C9A84C;
+  --color-border: #E5E7EB;
+  --color-confidence-high: #166534;
+  --color-confidence-medium: #92400E;
+  --color-confidence-refused: #991B1B;
+
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Source Sans 3", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg);
+  }
+}

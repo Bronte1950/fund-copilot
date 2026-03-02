@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment — never commit secrets
+.env
+
+# Data — large files; keep structure via .gitkeep
+data/raw_pdfs/**
+!data/raw_pdfs/**/.gitkeep
+data/extracted/**
+!data/extracted/.gitkeep
+data/chunks/**
+!data/chunks/.gitkeep
+data/indices/**
+!data/indices/.gitkeep
+data/*.sqlite
+data/eval/results/**
+!data/eval/results/.gitkeep
+data/eval/questions.jsonl
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
