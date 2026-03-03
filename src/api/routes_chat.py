@@ -3,10 +3,13 @@
 Flow (both endpoints):
     1. Validate query (length + basic prompt-injection check).
     2. Retrieve context chunks via hybrid search.
-    3. Assemble prompt with token budgeting.
-    4. Call Ollama (blocking for /chat, streaming for /chat/stream).
-    5. Validate citations + grounding.
-    6. Return ChatResponse or SSE stream.
+       If query is a market-data/comparison query, also fetch Yahoo Finance live data.
+    3. Prepend live data as numbered context passages alongside PDF chunks.
+    4. Assemble prompt with token budgeting.
+    5. Call Ollama (blocking for /chat, streaming for /chat/stream).
+    6. Validate citations + grounding.
+    7. Enrich any Yahoo Finance citations with url/citation_type for the frontend.
+    8. Return ChatResponse or SSE stream.
 """
 
 from __future__ import annotations
@@ -21,7 +24,14 @@ from fastapi.responses import StreamingResponse
 
 from src.common.config import settings
 from src.common.logging import get_logger
-from src.common.schemas import ChatRequest, ChatResponse, Citation, FundLiveData, RetrievalRequest
+from src.common.schemas import (
+    ChatRequest,
+    ChatResponse,
+    Citation,
+    FundLiveData,
+    RetrievalRequest,
+    RetrievalResult,
+)
 from src.data_sources.yahoo_finance import get_all_manifest_isins, get_live_data
 from src.llm.client import generate, stream_generate
 from src.llm.grounding import ground_response
@@ -91,68 +101,77 @@ def _is_live_data_query(query: str) -> bool:
     return bool(_MARKET_DATA_RE.search(query) and _FUND_CONTEXT_RE.search(query))
 
 
-def _build_live_context_block(live_rows: list[FundLiveData]) -> str:
-    """Format live Yahoo Finance data as a plain-text context block for the LLM.
+def _live_data_to_results(live_rows: list[FundLiveData]) -> list[RetrievalResult]:
+    """Convert FundLiveData rows to synthetic RetrievalResult objects.
 
-    Uses [LIVE] tag (not a [N] number) so the grounding validator ignores it.
-    The LLM uses this data to reason; live citations are appended programmatically.
+    These are prepended to the retrieval results list so they appear as numbered
+    passages [1], [2], ... inside the CONTEXT section of the system prompt — the
+    same section the model is instructed to cite from.  The model can then cite
+    live data naturally with [1] just like a PDF chunk, and the grounding
+    validator validates those citations through the normal pipeline.
+
+    source_file is set to "Yahoo Finance — {ticker}" so _build_citations() in
+    grounding.py produces a Citation with that as file_name.  _enrich_live_citations()
+    then adds url and citation_type="live_data" so the frontend renders the
+    clickable Yahoo Finance link.
     """
-    if not live_rows:
-        return ""
-
-    age_h = settings.yahoo_cache_max_age_hours
-    lines = [f"[LIVE] Yahoo Finance market data (cached, updated within {age_h:.0f} hours):"]
+    results: list[RetrievalResult] = []
     for row in live_rows:
-        parts = [f"ISIN: {row.isin}"]
-        if row.fund_name:
-            parts.append(f"Name: {row.fund_name}")
-        if row.resolved_ticker:
-            parts.append(f"Ticker: {row.resolved_ticker}")
+        parts: list[str] = []
         if row.price is not None:
             currency = row.currency or ""
             parts.append(f"Price: {row.price} {currency}".strip())
         if row.price_change_pct is not None:
-            parts.append(f"24h: {row.price_change_pct:+.2f}%")
+            parts.append(f"24h change: {row.price_change_pct:+.2f}%")
         if row.ytd_return_pct is not None:
-            parts.append(f"YTD: {row.ytd_return_pct:.2f}%")
+            parts.append(f"YTD return: {row.ytd_return_pct:.2f}%")
         if row.one_year_return_pct is not None:
-            parts.append(f"1yr: {row.one_year_return_pct:.2f}%")
+            parts.append(f"1-year return: {row.one_year_return_pct:.2f}%")
         if row.expense_ratio_pct is not None:
-            parts.append(f"OCF: {row.expense_ratio_pct:.4f}%")
+            parts.append(f"Ongoing charge (OCF): {row.expense_ratio_pct:.4f}%")
         if row.aum_millions is not None:
             parts.append(f"AUM: {row.aum_millions:.0f}M")
         if row.dividend_yield_pct is not None:
-            parts.append(f"Yield: {row.dividend_yield_pct:.2f}%")
+            parts.append(f"Dividend yield: {row.dividend_yield_pct:.2f}%")
         if row.yahoo_url:
             parts.append(f"Source: {row.yahoo_url}")
-        lines.append("  " + " | ".join(parts))
 
-    return "\n".join(lines)
+        text = " | ".join(parts) if parts else "No market data available."
 
-
-def _build_live_citations(live_rows: list[FundLiveData]) -> list[Citation]:
-    """Build Citation objects for live data rows. Appended after ground_response()."""
-    citations: list[Citation] = []
-    for row in live_rows:
-        if row.fetch_status != "ok":
-            continue
-        price_str = f"{row.price} {row.currency or ''}".strip() if row.price is not None else "N/A"
-        yield_str = f"{row.dividend_yield_pct:.2f}%" if row.dividend_yield_pct is not None else "N/A"
-        citations.append(
-            Citation(
+        results.append(
+            RetrievalResult(
+                chunk_id=f"yahoo:{row.isin}",
                 doc_id=f"yahoo:{row.isin}",
-                file_name=f"Yahoo Finance — {row.resolved_ticker or row.isin}",
-                provider="Yahoo Finance",
-                fund_name=row.fund_name,
+                score=1.0,
+                text=text,
                 page_start=0,
                 page_end=0,
-                section="Live Market Data",
-                snippet=f"Price: {price_str} | Yield: {yield_str}",
-                url=row.yahoo_url,
-                citation_type="live_data",
+                section_heading="Live Market Data",
+                source_file=f"Yahoo Finance — {row.resolved_ticker or row.isin}",
+                provider="Yahoo Finance",
+                fund_name=row.fund_name,
+                search_type="hybrid",
             )
         )
-    return citations
+    return results
+
+
+def _enrich_live_citations(citations: list[Citation], live_rows: list[FundLiveData]) -> None:
+    """Post-process grounded citations: add url and citation_type for Yahoo Finance entries.
+
+    ground_response() builds Citation objects from RetrievalResult fields but does not
+    know about url or citation_type.  This function patches those fields in-place so the
+    frontend SourceCard can render the clickable Yahoo Finance link with the live badge.
+    """
+    live_by_isin = {row.isin: row for row in live_rows}
+    for citation in citations:
+        if not citation.doc_id.startswith("yahoo:"):
+            continue
+        isin = citation.doc_id[len("yahoo:"):]
+        row = live_by_isin.get(isin)
+        if row:
+            citation.url = row.yahoo_url
+            citation.citation_type = "live_data"
 
 
 async def _run_live_data(request: ChatRequest, query: str) -> list[FundLiveData]:
@@ -168,8 +187,6 @@ async def _run_live_data(request: ChatRequest, query: str) -> list[FundLiveData]
     else:
         isins = await asyncio.to_thread(get_all_manifest_isins)
 
-    # Cap to token-budget limit (largest funds by AUM are preferred but we don't sort here —
-    # the list from manifest is small enough; refresh_all caps internally)
     isins = isins[: settings.yahoo_max_live_funds]
 
     try:
@@ -179,7 +196,7 @@ async def _run_live_data(request: ChatRequest, query: str) -> list[FundLiveData]
         return []
 
 
-# ── Shared pipeline helper ─────────────────────────────────────────────────────
+# ── Shared pipeline helper ────────────────────────────────────────────────────
 
 
 async def _run_retrieval(request: ChatRequest) -> tuple[list, float]:
@@ -225,13 +242,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
         _run_live_data(request, query),
     )
 
-    messages, chunks_used = assemble_prompt(query, results)
-
-    # Prepend live data block to system message if this is a market-data query
+    # Prepend live data as numbered context passages — they flow through the
+    # normal assemble_prompt / ground_response pipeline alongside PDF chunks.
     if live_rows:
-        live_block = _build_live_context_block(live_rows)
-        messages[0]["content"] = live_block + "\n\n---\n\n" + messages[0]["content"]
+        results = _live_data_to_results(live_rows) + results
         log.info("live_data_injected", n_funds=len(live_rows))
+
+    messages, chunks_used = assemble_prompt(query, results)
 
     t0 = time.perf_counter()
     answer_text = await generate(messages)
@@ -253,9 +270,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         model=settings.ollama_model,
     )
 
-    # Append live data citations (bypass grounding validator — intentional)
+    # Patch url + citation_type on any Yahoo Finance citations grounding produced
     if live_rows:
-        response.citations.extend(_build_live_citations(live_rows))
+        _enrich_live_citations(response.citations, live_rows)
 
     log.info(
         "chat_complete",
@@ -290,11 +307,11 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 _run_retrieval(request),
                 _run_live_data(request, query),
             )
-            messages, chunks_used = assemble_prompt(query, results)
 
             if live_rows:
-                live_block = _build_live_context_block(live_rows)
-                messages[0]["content"] = live_block + "\n\n---\n\n" + messages[0]["content"]
+                results = _live_data_to_results(live_rows) + results
+
+            messages, chunks_used = assemble_prompt(query, results)
 
             t0 = time.perf_counter()
             full_answer: list[str] = []
@@ -316,7 +333,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             )
 
             if live_rows:
-                response.citations.extend(_build_live_citations(live_rows))
+                _enrich_live_citations(response.citations, live_rows)
 
             log.info(
                 "chat_stream_complete",
