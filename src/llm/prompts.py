@@ -48,7 +48,7 @@ _ENC = tiktoken.get_encoding("cl100k_base")
 # Leaves plenty of room for the system prompt, question, and generation.
 # 3,000 keeps total Ollama input under ~3,500 tokens → ~65s prefill on CPU
 # instead of ~105s at 5,000. Reduces generation timeout risk significantly.
-_MAX_CONTEXT_TOKENS = 4_000
+_MAX_CONTEXT_TOKENS = 3_000
 
 
 def _count_tokens(text: str) -> int:

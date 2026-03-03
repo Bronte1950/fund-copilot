@@ -12,7 +12,8 @@
 | **R1** | `20260302T135411` | ❌ Invalid | 85.7% | 0.0% | 0.0% | All 20 questions silently timed out (read=180s) | [Results](http://localhost:8010/eval/results/20260302T135411) |
 | **R2** | `20260302T141648` | ⚠️ Partial | 91.7% | 0.0% | 75.0%* | 12/20 done, 3 ReadTimeouts, 95-min event loop stall | [Results](http://localhost:8010/eval/results/20260302T141648) |
 | **R3** | `20260303T014203` | ⚠️ Partial | 88.9% | 35.0% | 50.0% | 5 client errors (q001–q005), 5 false refusals, grounding fixed | [Results](http://localhost:8010/eval/results/20260303T014203) |
-| **R4** | *(pending)* | ⏳ Not run | — | — | — | Fix client state bug + investigate false refusals | — |
+| **R4** | `20260303T084111` | ⚠️ Partial | 85.7% | 35.0% | 40.0% | 0 errors, same false refusals, 4000-token cap slower + q018 regression | [Results](http://localhost:8010/eval/results/20260303T084111) |
+| **R5** | *(pending)* | ⏳ Not run | — | — | — | Revert to 3000 tokens + ISIN metadata filter in retrieval | — |
 
 [Open Evaluation Dashboard →](http://localhost:5174) *(Evaluation tab → Run History)*
 
@@ -435,40 +436,114 @@ Note the pattern: q008/q010/q012 are all iShares Euro Corp Bond questions. q014/
 
 ---
 
-## R4 — Recommendations (pending run)
+## R4 — Run 4 — `20260303T084111`
+
+**Status:** 20/20 complete, 0 errors
+**Duration:** ~50 minutes
+**Verdict:** ⚠️ Partial — client bug fixed, root cause of false refusals identified
+
+### Summary Metrics
+
+| Metric | Value | vs R3 |
+|---|---|---|
+| Hit@k | 85.7% | ↓ slightly |
+| Grounding rate | 35.0% | = same |
+| Refusal accuracy | 40.0% ❌ | ↓ worse |
+| Correct refusals | 66.7% ❌ | ↓ regression |
+| Errors | **0** ✅ | ↓ fixed |
+| Avg retrieval | **714ms** ✅ | ↓ fixed (was 4,145ms) |
+| Avg generation | ~200s | ↓ slower (was 86s) |
+
+### What Worked
+
+- **Zero RuntimeErrors** — `close_client()` at run start completely fixed the stale connection pool bug
+- **Retrieval back to normal** — 714ms avg (was 4,145ms in R3 due to event loop interference)
+
+### What Didn't Work — 4,000 Token Context Cap
+
+> **Learning note:** The false refusals are NOT caused by insufficient context. Raising the
+> cap from 3,000 to 4,000 tokens didn't fix a single false refusal. But it did:
+> 1. Slow generation by ~70s per question (more tokens to read = slower prefill)
+> 2. Cause q018 to falsely answer — with more context from more chunks, the model found
+>    OCF text from a *different* fund and answered a fake-ISIN question as if it were real.
+>    More context made hallucination *more* likely.
+
+### Root Cause of False Refusals — Retrieval Precision
+
+> **Learning note:** The real problem is that retrieval returns chunks from *multiple funds*.
+> When q001 asks "what is the OCF for ISIN IE00B4L5Y983?", the top-10 results include
+> OCF chunks from several iShares funds (they're all similar documents). The model sees
+> "0.20% for iShares Core MSCI World" alongside "0.15% for iShares Euro Corp Bond" and
+> can't confidently say which one belongs to the specific ISIN in the question. So it
+> refuses rather than risk citing the wrong fund's number.
+>
+> This is correct and cautious behaviour from the model. The problem is in retrieval — we
+> should only show the model chunks from the *specific document* that matches the ISIN in
+> the question. Then it won't be confused by competing funds.
+
+The fix: **ISIN metadata filter**. When a query mentions a specific ISIN, restrict retrieval to chunks from the document matching that ISIN only. The manifest DB has `isin → doc_id` already — we just need to pass this as a filter to the retrieval layer.
+
+### Per-Question Detail (R4)
+
+| ID | Category | Should Refuse | Hit@k | Confidence | Gen (s) | Grounded | Refusal OK | Notes |
+|---|---|---|---|---|---|---|---|---|
+| q001 | ocf | No | 1.0 | refused | 203 | ❌ | ❌ | False refusal — ISIN precision |
+| q002 | risk_rating | No | 0.0 | refused | 180 | ❌ | ❌ | False refusal — retrieval miss |
+| q003 | charges | No | 1.0 | refused | 155 | ❌ | ❌ | False refusal — ISIN precision |
+| q004 | charges | No | 1.0 | refused | 173 | ❌ | ❌ | False refusal — ISIN precision |
+| q005 | risk_rating | No | 1.0 | refused | 181 | ❌ | ❌ | False refusal — ISIN precision |
+| q006 | ocf | No | 1.0 | medium | 180 | ✅ | ✅ | — |
+| q007 | ocf | No | 1.0 | refused | 187 | ❌ | ❌ | False refusal — ISIN precision |
+| q008 | sfdr | No | 1.0 | refused | 199 | ❌ | ❌ | False refusal — ISIN precision |
+| q009 | characteristics | No | 1.0 | medium | 358 | ✅ | ✅ | Long — near 480s wall |
+| q010 | characteristics | No | 1.0 | refused | 370 | ❌ | ❌ | False refusal — near 480s wall |
+| q011 | benchmark | No | 1.0 | medium | 186 | ✅ | ✅ | — |
+| q012 | characteristics | No | 1.0 | refused | 156 | ❌ | ❌ | False refusal |
+| q013 | structure | No | — | medium | 178 | ✅ | ✅ | — |
+| q014 | structure | No | — | refused | 169 | ❌ | ❌ | False refusal |
+| q015 | structure | No | — | refused | 169 | ❌ | ❌ | False refusal |
+| q016 | regulation | No | — | medium | 178 | ✅ | ✅ | — |
+| q017 | characteristics | No | 1.0 | medium | 180 | ✅ | ✅ | — |
+| q018 | ocf | **Yes** | — | medium | 215 | ✅ | ❌ | **Regression** — should refuse (fake ISIN), now answers |
+| q019 | off_topic | **Yes** | — | refused | 185 | ❌ | ✅ | Correctly refused |
+| q020 | esg | **Yes** | 0.0 | refused | 181 | ❌ | ✅ | Correctly refused |
+
+---
+
+## R5 — Recommendations (pending run)
 
 ### Fixes to implement
 
-1. **Reset httpx client at run start** — add `await close_client()` as first line of `run_eval()`. Eliminates the stale connection pool bug that killed q001–q005.
-2. **Raise context cap to 4,000 tokens** — increase `_MAX_CONTEXT_TOKENS` from 3,000 back toward 4,000. The 3,000 cap may be cutting off chunks that contain SFDR classifications, depositaries, and structure details.
-3. **Investigate false refusal questions** — check what chunks are actually retrieved for q008, q010, q012, q014, q015. If the relevant chunk isn't in top-10, the retrieval (not the LLM) is the problem.
+1. **Revert `_MAX_CONTEXT_TOKENS` to 3,000** — 4,000 is ~70s slower per question, caused q018 hallucination, and didn't fix any false refusals.
+2. **ISIN metadata filter in retrieval** — when a query contains a specific ISIN, pass `doc_id` as a filter so vector search and FTS5 only return chunks from that document. The manifest already has `isin → doc_id`. This eliminates the "competing fund" confusion that causes most false refusals.
 
-### Expected R4 results (if fixes work)
+### Expected R5 results (if ISIN filter works)
 
-| Metric | R3 | Expected R4 |
+| Metric | R4 | Expected R5 |
 |---|---|---|
-| Errors | 5 (RuntimeError) | 0 |
-| Grounding rate | 35% | ~50–60% |
-| Refusal accuracy | 50% | ~75% (false refusals fixed) |
-| Hit@k | 88.9% | ~90% (unchanged) |
+| Errors | 0 | 0 |
+| Grounding rate | 35% | ~55–70% (ISIN-filtered questions get focused context) |
+| Refusal accuracy | 40% | ~80% (false refusals on ISIN questions fixed) |
+| Correct refusals | 66.7% | 100% (revert prevents q018 hallucination) |
+| Avg generation | ~200s | ~120s (3,000 tokens faster) |
 
 ---
 
 ## Quick Reference
 
-| Metric | R1 | R2 (partial) | R3 | R4 target |
-|---|---|---|---|---|
-| Hit@k | 85.7% | 91.7% | 88.9% | ≥ 90% |
-| Grounding rate | 0.0% | 0.0% | **35.0%** 🟡 | ≥ 60% |
-| Refusal accuracy | 0.0% | 75%* | 50.0% | ≥ 80% |
-| Correct refusals | 0.0% | 100%† | **100%** ✅ | 100% |
-| Errors | 20 (silent) | 3 + 1 stall | 5 (client) | 0 |
-| Avg generation | 0ms (all failed) | ~216s | ~86s ✅ | < 100s |
-| Total run time | ~63 min | ~10 hrs (stalled) | ~38 min ✅ | < 45 min |
+| Metric | R1 | R2 (partial) | R3 | R4 | R5 target |
+|---|---|---|---|---|---|
+| Hit@k | 85.7% | 91.7% | 88.9% | 85.7% | ≥ 90% |
+| Grounding rate | 0.0% | 0.0% | 35.0% 🟡 | 35.0% 🟡 | ≥ 65% |
+| Refusal accuracy | 0.0% | 75%* | 50.0% | 40.0% ❌ | ≥ 80% |
+| Correct refusals | 0.0% | 100%† | **100%** ✅ | 66.7% ❌ | 100% |
+| Errors | 20 (silent) | 3 + 1 stall | 5 (client) | **0** ✅ | 0 |
+| Avg generation | 0ms | ~216s | ~86s ✅ | ~200s | < 130s |
+| Total run time | ~63 min | ~10 hrs | ~38 min | ~50 min | < 45 min |
 
-\*R2 75% = 3 ReadTimeout questions counted as wrong refusals. True refusal accuracy for questions that generated = 9/9 = 100%.
+\*R2 75% = 3 ReadTimeout questions counted as wrong refusals.
 †R2 correct refusals: only q018–q020 assessed; q007/q008/q011 were errors not assessed.
 
 ---
 
-**Progress:** Infrastructure is solid. Citation format is working (35% grounding from zero). Two things left to fix: stale httpx connection pool (kills q001–q005) and false refusals (model can't find specific facts in 3,000-token context). R4 is the first realistic chance at a clean complete run.
+**Where we are:** Infrastructure is stable (0 errors in R4). Grounding is working for ~35% of questions. The false refusal problem is now understood — it's a retrieval precision issue, not a model or prompt problem. ISIN-based filtering in retrieval is the next fix.
