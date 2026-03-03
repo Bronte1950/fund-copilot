@@ -113,7 +113,7 @@ async def _eval_question(q: dict, top_k: int = 10) -> EvalResult:
     try:
         # ── Retrieval ──────────────────────────────────────────────────────────
         t0 = time.perf_counter()
-        retrieval_req = RetrievalRequest(query=q["query"], top_k=top_k)
+        retrieval_req = RetrievalRequest(query=q["query"], top_k=top_k, isin=q.get("expected_isin"))
         chunks = await retrieve(retrieval_req)
         result.retrieval_ms = (time.perf_counter() - t0) * 1000
 
