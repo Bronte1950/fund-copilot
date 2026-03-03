@@ -7,11 +7,13 @@
 
 ## Run Index
 
-| ID | Timestamp | Status | Hit@k | Grounding | Refusal acc. | Notes |
-|---|---|---|---|---|---|---|
-| **R1** | `20260302T135411` | ❌ Invalid | 85.7% | 0.0% | 0.0% | All 20 questions silently timed out (read=180s) |
-| **R2** | `20260302T141648` | ⚠️ Partial | 91.7% | 0.0% | 75.0%* | 12/20 done, 3 ReadTimeouts, 95-min event loop stall |
-| **R3** | *(pending)* | ⏳ Not run | — | — | — | All fixes applied — first clean run expected |
+| ID | Timestamp | Status | Hit@k | Grounding | Refusal acc. | Notes | Links |
+|---|---|---|---|---|---|---|---|
+| **R1** | `20260302T135411` | ❌ Invalid | 85.7% | 0.0% | 0.0% | All 20 questions silently timed out (read=180s) | [Results](http://localhost:8010/eval/results/20260302T135411) |
+| **R2** | `20260302T141648` | ⚠️ Partial | 91.7% | 0.0% | 75.0%* | 12/20 done, 3 ReadTimeouts, 95-min event loop stall | [Results](http://localhost:8010/eval/results/20260302T141648) |
+| **R3** | *(pending)* | ⏳ Not run | — | — | — | All fixes applied — first clean run expected | — |
+
+[Open Evaluation Dashboard →](http://localhost:5174) *(Evaluation tab → Run History)*
 
 \*Refusal accuracy for R2 is across completed questions only; 3 timeout errors counted as wrong refusals.
 
