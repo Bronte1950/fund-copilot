@@ -5,6 +5,20 @@
 
 ---
 
+## Run Index
+
+| ID | Timestamp | Status | Hit@k | Grounding | Refusal acc. | Notes |
+|---|---|---|---|---|---|---|
+| **R1** | `20260302T135411` | ❌ Invalid | 85.7% | 0.0% | 0.0% | All 20 questions silently timed out (read=180s) |
+| **R2** | `20260302T141648` | ⚠️ Partial | 91.7% | 0.0% | 75.0%* | 12/20 done, 3 ReadTimeouts, 95-min event loop stall |
+| **R3** | *(pending)* | ⏳ Not run | — | — | — | All fixes applied — first clean run expected |
+
+\*Refusal accuracy for R2 is across completed questions only; 3 timeout errors counted as wrong refusals.
+
+> **How to reference runs:** Use the ID in conversation, e.g. "R1 showed retrieval was fine", "R2's grounding failure", "compare R1 vs R2 Hit@k".
+
+---
+
 ## Background: Key Concepts
 
 > This section explains what the evaluation is actually measuring and why things went wrong.
@@ -51,7 +65,7 @@ Two eval runs have been attempted. Neither produced valid results. Run 1 silentl
 
 ---
 
-## Run 1 — `20260302T135411`
+## R1 — Run 1 — `20260302T135411`
 
 **Status:** Complete (all 20 questions written to disk)
 **Duration:** ~63 minutes
@@ -108,7 +122,7 @@ The exception path in `_eval_question` caught the `ReadTimeout` but `str(ReadTim
 
 ---
 
-## Run 2 — `20260302T141648` (incomplete, abandoned)
+## R2 — Run 2 — `20260302T141648` (incomplete, abandoned)
 
 **Status:** 12/20 complete — run abandoned after ~10 hour stall
 **Verdict:** ⚠️ Partial — generation is working, grounding is not
@@ -320,7 +334,7 @@ Hit@k = 85.7% (Run 1) and 91.7% (Run 2 partial). The hybrid retrieval is functio
 
 ---
 
-## Recommendations for Run 3
+## R3 — Recommendations (pending run)
 
 ### Already implemented
 
@@ -357,7 +371,7 @@ Add `WHERE isin = ?` to the retrieval query for questions that include a specifi
 
 ## Quick Reference: What "Good" Looks Like
 
-| Metric | Run 1 | Run 2 (partial) | Target |
+| Metric | R1 | R2 (partial) | R3 target |
 |---|---|---|---|
 | Hit@k | 85.7% | 91.7% | ≥ 90% ✅ |
 | Grounding rate | 0.0% | 0.0% | ≥ 70% |
