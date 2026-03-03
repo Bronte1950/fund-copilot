@@ -176,6 +176,10 @@ async def run_eval(
 
     Returns (results, summary_metrics).
     """
+    # Reset the shared httpx client before each run to clear any stale TCP
+    # connections left over from previous requests or timed-out eval runs.
+    await close_client()
+
     questions = load_questions(questions_path)
     log.info("eval_start", n_questions=len(questions), top_k=top_k)
 
