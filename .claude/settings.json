@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys,json; rows=[json.loads\\(l\\) for l in sys.stdin if l.strip\\(\\)]; print\\(f''questions: {len\\(rows\\)}''\\); [print\\(f''{r[\"\"question_id\"\"]}: gen={r[\"\"generation_ms\"\"]}ms err={repr\\(r[\"\"error\"\"]\\)}''\\) for r in rows]\")",
+      "Bash(python \"c:/dev/repos/fund-copilot/data/eval/results/20260302T135411.jsonl\")",
+      "Bash(python3.10 -c \":*)",
+      "Bash(py -c \":*)"
+    ]
+  }
+}

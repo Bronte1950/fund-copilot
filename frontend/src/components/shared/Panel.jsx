@@ -1,5 +1,9 @@
-// White surface card with shadow — wraps AnswerCard, SourcesPanel, etc.
-// TODO Phase 4: implement with border, rounded corners, generous padding
+// White surface card with border and shadow — wraps AnswerCard, SourcesPanel, etc.
+
 export default function Panel({ children, className = '' }) {
-  return null
+  return (
+    <div className={`bg-surface border border-border rounded-lg shadow-sm ${className}`}>
+      {children}
+    </div>
+  )
 }

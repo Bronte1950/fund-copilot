@@ -7,7 +7,24 @@
       "Bash(python -m venv \"c:/dev/repos/fund-copilot/.venv\")",
       "Bash(.venv/Scripts/pip install -e \".[dev]\")",
       "Bash(docker compose -f \"c:/dev/repos/fund-copilot/docker-compose.yml\" ps)",
-      "Bash(python -m json.tool)"
+      "Bash(python -m json.tool)",
+      "Bash(gh repo view --json nameWithOwner,url,description,defaultBranchRef)",
+      "Bash(.venv/Scripts/python -m src ingest inventory)",
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(.venv/Scripts/python -m src ingest inventory --force)",
+      "Bash(.venv/Scripts/python -m src ingest extract)",
+      "Bash(.venv/Scripts/python -m src ingest clean)",
+      "Bash(.venv/Scripts/python -m src ingest clean --force)",
+      "Bash(python -m src ingest chunk)",
+      "Bash(source c:/dev/repos/fund-copilot/.venv/Scripts/activate)",
+      "Bash(python -c \":*)",
+      "Bash(python -m src ingest embed)",
+      "Bash(python -m src ingest keyword)",
+      "Bash(netstat -ano)",
+      "Bash(python -c \"import json,sys; docs=json.load\\(sys.stdin\\); print\\(f''{len\\(docs\\)} Vanguard factsheets''\\); [print\\('' '', d[''file_name'']\\) for d in docs[:4]]\")",
+      "Bash(sqlite3 c:/dev/repos/fund-copilot/data/manifest.sqlite \"SELECT COUNT\\(*\\), extraction_status FROM documents GROUP BY extraction_status;\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''{len\\(d\\)} docs''\\); print\\(d[:2] if d else ''empty''\\)\")",
+      "Bash(python -c \"import sys; d=sys.stdin.read\\(\\); print\\(repr\\(d[:200]\\)\\)\")"
     ]
   }
 }

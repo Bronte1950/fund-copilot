@@ -4,9 +4,9 @@
 
 Fund Copilot is a local-first RAG (Retrieval Augmented Generation) system for UK/Ireland UCITS fund documents. It ingests ~100+ fund PDFs, indexes them with hybrid search (vector + keyword), and answers questions with mandatory citations — or refuses when evidence is missing.
 
-**Builder**: Jack  
-**Status**: Phase 0 — setting up  
-**Repo**: `C:\dev\repos\fund-copilot`
+**Builder**: Jack
+**Status**: Phase 5 — evaluation (Run 3 pending)
+**Repo**: `C:\dev\repos\fund-copilot` · https://github.com/Bronte1950/fund-copilot
 
 This is a separate project from TERMINUS (the systematic crypto trading platform in `C:\dev\repos\systematic-trading`). Different purpose, different stack choices, different frontend aesthetic. Shares some conventions (Git workflow, Pydantic models, FastAPI patterns).
 

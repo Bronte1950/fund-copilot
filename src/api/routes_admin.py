@@ -63,17 +63,61 @@ async def health() -> dict:
 
 @router.get("/admin/stats", summary="Ingestion metrics")
 async def stats() -> dict:
-    """Return document and chunk counts across all indices.
+    """Return document and chunk counts across all indices."""
+    import asyncio
+    import sqlite3
 
-    Phase 1: populated once the ingest pipeline runs.
-    """
-    # TODO Phase 1: query manifest.sqlite for real counts
+    from src.common.db import FTS_DB_PATH, MANIFEST_DB_PATH, get_postgres_conn
+
+    def _manifest_stats() -> dict:
+        conn = sqlite3.connect(str(MANIFEST_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                """SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN extraction_status IN ('extracted','needs_ocr') THEN 1 ELSE 0 END) AS indexed,
+                    SUM(CASE WHEN extraction_status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN extraction_status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                    SUM(chunk_count) AS total_chunks
+                FROM documents"""
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def _fts_count() -> int:
+        try:
+            conn = sqlite3.connect(str(FTS_DB_PATH))
+            n = conn.execute("SELECT COUNT(*) FROM chunks_kw").fetchone()[0]
+            conn.close()
+            return n
+        except Exception:
+            return 0
+
+    m, fts_n = await asyncio.gather(
+        asyncio.to_thread(_manifest_stats),
+        asyncio.to_thread(_fts_count),
+    )
+
+    vector_n = 0
+    try:
+        async with get_postgres_conn() as conn:
+            vector_n = await conn.fetchval("SELECT COUNT(*) FROM chunks") or 0
+    except Exception:
+        pass
+
     return {
-        "documents": {"total": 0, "indexed": 0, "pending": 0, "failed": 0},
-        "chunks": {"total": 0},
+        "documents": {
+            "total": m["total"] or 0,
+            "indexed": m["indexed"] or 0,
+            "pending": m["pending"] or 0,
+            "failed": m["failed"] or 0,
+        },
+        "chunks": {"total": m["total_chunks"] or 0},
         "indices": {
-            "vector": "not initialised",
-            "keyword": "not initialised",
+            "vector": f"{vector_n} rows (pgvector)",
+            "keyword": f"{fts_n} rows (FTS5)",
         },
     }
 

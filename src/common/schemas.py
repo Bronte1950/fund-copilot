@@ -98,6 +98,8 @@ class RetrievalRequest(BaseModel):
 class Citation(BaseModel):
     doc_id: str
     file_name: str
+    provider: str | None = None
+    fund_name: str | None = None
     page_start: int
     page_end: int
     section: str | None = None

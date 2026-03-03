@@ -15,9 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes_admin import router as admin_router
 from src.api.routes_chat import router as chat_router
+from src.api.routes_eval import router as eval_router
 from src.api.routes_retrieval import router as retrieval_router
 from src.common.config import settings
 from src.common.logging import get_logger, setup_logging
+from src.llm.client import close_client
 
 log = get_logger(__name__)
 
@@ -27,6 +29,7 @@ async def lifespan(app: FastAPI):
     setup_logging(log_level=settings.log_level, log_format=settings.log_format)
     log.info("fund_copilot_api_starting", version="0.1.0", port=settings.api_port)
     yield
+    await close_client()
     log.info("fund_copilot_api_stopping")
 
 
@@ -47,6 +50,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[
             "http://localhost:5173",  # Vite dev server
+            "http://localhost:5174",  # Vite dev server (alt port)
             "http://localhost:4173",  # Vite preview
         ],
         allow_credentials=True,
@@ -57,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(retrieval_router)
     app.include_router(chat_router)
+    app.include_router(eval_router)
 
     return app
 
