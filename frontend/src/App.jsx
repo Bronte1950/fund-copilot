@@ -242,7 +242,7 @@ function RunHistory({ history }) {
 
   if (history.length === 0) return null
 
-  const COL_COUNT = 9  // summary cols + expand chevron
+  const COL_COUNT = 10  // run ID + summary cols + expand chevron
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden">
@@ -253,6 +253,7 @@ function RunHistory({ history }) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-border bg-gray-50 text-xs text-text-secondary uppercase tracking-wide">
+              <th className="py-2 px-3 text-left">Run</th>
               <th className="py-2 px-3 text-left">Timestamp</th>
               <th className="py-2 px-3 text-center">top_k</th>
               <th className="py-2 px-3 text-center">Questions</th>
@@ -266,6 +267,7 @@ function RunHistory({ history }) {
           </thead>
           <tbody>
             {history.map((run, i) => {
+              const runId = `R${history.length - i}`
               const prev = history[i + 1]
               const isLatest = i === 0
               const isOpen = expandedTs === run.timestamp
@@ -281,6 +283,9 @@ function RunHistory({ history }) {
                     onClick={() => toggleExpand(run.timestamp)}
                     className={`border-b border-border text-xs cursor-pointer select-none ${rowBg}`}
                   >
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      <span className="font-mono font-semibold text-navy">{runId}</span>
+                    </td>
                     <td className="py-2 px-3 font-mono text-text-secondary whitespace-nowrap">
                       {formatTs(run.timestamp)}
                       {isLatest && (
