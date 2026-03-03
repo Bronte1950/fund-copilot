@@ -26,6 +26,7 @@ from src.common.config import settings
 DATA_DIR = Path("data")
 MANIFEST_DB_PATH = DATA_DIR / "manifest.sqlite"
 FTS_DB_PATH = DATA_DIR / "indices" / "fts.sqlite"
+LIVE_DATA_DB_PATH = MANIFEST_DB_PATH  # fund_live_data table lives in the manifest DB
 
 
 # ── Postgres ──────────────────────────────────────────────────────────────────

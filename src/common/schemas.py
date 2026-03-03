@@ -104,6 +104,8 @@ class Citation(BaseModel):
     page_end: int
     section: str | None = None
     snippet: str
+    url: str | None = None  # Yahoo Finance link (live_data citations only)
+    citation_type: Literal["document", "live_data"] = "document"
 
 
 class ChatRequest(BaseModel):
@@ -126,7 +128,42 @@ class ChatResponse(BaseModel):
     generation_time_ms: float
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# ── Live Data ─────────────────────────────────────────────────────────────────
+
+
+class FundLiveData(BaseModel):
+    isin: str
+    resolved_ticker: str | None = None
+    fund_name: str | None = None
+    currency: str | None = None
+    price: float | None = None
+    price_change_pct: float | None = None
+    nav: float | None = None
+    aum_millions: float | None = None
+    ytd_return_pct: float | None = None
+    one_year_return_pct: float | None = None
+    expense_ratio_pct: float | None = None
+    dividend_yield_pct: float | None = None
+    yahoo_url: str | None = None  # https://finance.yahoo.com/quote/{ticker}
+    fetched_at: datetime
+    fetch_status: Literal["ok", "stale", "no_ticker", "fetch_error"] = "ok"
+
+
+class LiveDataRefreshResult(BaseModel):
+    refreshed: int
+    skipped: int
+    failed: int
+    duration_ms: float
+    isins_refreshed: list[str]
+
+
+class LiveFundsResponse(BaseModel):
+    funds: list[FundLiveData]
+    cache_age_hours: float | None = None
+    total: int
+
+
+# ── Health ─────────────────────────────────────────────────────────────────────
 
 
 class ServiceStatus(BaseModel):

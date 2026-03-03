@@ -63,5 +63,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "json"  # "json" | "console"
 
+    # ── Yahoo Finance ─────────────────────────────────────────────────────────
+    yahoo_cache_max_age_hours: float = 4.0
+    yahoo_fetch_timeout_seconds: float = 10.0
+    yahoo_live_data_enabled: bool = True  # Set False to disable live data injection
+    yahoo_max_live_funds: int = 15  # Max funds injected into LLM context per query
+
 
 settings = Settings()
