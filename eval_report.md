@@ -11,7 +11,8 @@
 |---|---|---|---|---|---|---|---|
 | **R1** | `20260302T135411` | ❌ Invalid | 85.7% | 0.0% | 0.0% | All 20 questions silently timed out (read=180s) | [Results](http://localhost:8010/eval/results/20260302T135411) |
 | **R2** | `20260302T141648` | ⚠️ Partial | 91.7% | 0.0% | 75.0%* | 12/20 done, 3 ReadTimeouts, 95-min event loop stall | [Results](http://localhost:8010/eval/results/20260302T141648) |
-| **R3** | *(pending)* | ⏳ Not run | — | — | — | All fixes applied — first clean run expected | — |
+| **R3** | `20260303T014203` | ⚠️ Partial | 88.9% | 35.0% | 50.0% | 5 client errors (q001–q005), 5 false refusals, grounding fixed | [Results](http://localhost:8010/eval/results/20260303T014203) |
+| **R4** | *(pending)* | ⏳ Not run | — | — | — | Fix client state bug + investigate false refusals | — |
 
 [Open Evaluation Dashboard →](http://localhost:5174) *(Evaluation tab → Run History)*
 
@@ -336,54 +337,138 @@ Hit@k = 85.7% (Run 1) and 91.7% (Run 2 partial). The hybrid retrieval is functio
 
 ---
 
-## R3 — Recommendations (pending run)
+## R3 — Run 3 — `20260303T014203`
 
-### Already implemented
+**Status:** 20/20 questions complete — no hangs, no timeouts
+**Duration:** ~38 minutes
+**Verdict:** ⚠️ Partial — grounding fixed, two new failure modes found
 
-1. ✅ Context cap 5,000 → 3,000 tokens — saves ~40s/question prefill
-2. ✅ Numbered citations `[1]`, `[2]` — model will actually use these
-3. ✅ `num_predict: 512` — caps generation, eliminates timeout risk from verbose answers
-4. ✅ `asyncio.wait_for(480s)` — hard wall per question regardless of what Ollama does
-5. ✅ `close_client()` on timeout — prevents event loop blockage
+### Summary Metrics
 
-### Run 3 expected results
+| Metric | Value |
+|---|---|
+| Hit@k | **88.9%** ✅ |
+| Grounding rate | **35.0%** 🟡 (up from 0%) |
+| Refusal accuracy | 50.0% ❌ |
+| Correct refusals | **100%** ✅ (all 3 should-refuse questions correct) |
+| Answerable grounding | 41.2% 🟡 |
+| Avg retrieval | 4,145 ms |
+| Avg generation | 86,142 ms (~86s) |
+| Errors | 5 × RuntimeError (q001–q005) |
 
-| Metric | Run 2 (partial) | Expected Run 3 |
+### What Worked
+
+> **Learning note:** The numbered citation fix genuinely worked. For the questions that
+> completed successfully, about half cited correctly. A grounded answer looks like:
+> *"The ongoing charges figure is 0.20% [2]."*
+> The model wrote `[2]`, which our `grounding.py` mapped back to `chunks_used[1]` (the second
+> retrieved chunk). That chunk was in the context, so grounding is validated. This is exactly
+> the pipeline working as designed.
+
+- Generation is stable: avg 86s, well within 480s wall
+- No ReadTimeouts, no event loop stalls
+- Model correctly refuses all three unanswerable questions (q018 OCF non-existent fund, q019 off-topic, q020 ESG claim)
+
+### New Issue 1 — RuntimeError: client has been closed (q001–q005)
+
+> **Learning note:** This is a "stale connection pool" bug. The httpx client is shared across
+> all requests via a global variable. After previous runs (especially R2, which had several
+> timeouts), the client's internal TCP connection pool contained broken connections — sockets
+> that Ollama had closed on its side. When q001 tried to send a request, httpx found only
+> broken connections in the pool and threw RuntimeError instead of creating a fresh one.
+> After enough failed attempts (q001–q005), the pool's cleanup logic eventually discarded
+> the broken connections, and q006 got a fresh TCP connection that worked.
+
+The error: `RuntimeError: Cannot send a request, as the client has been closed.`
+
+Five questions in a row fail at the generation step. The error is NOT a `ReadTimeout` so our existing `close_client()` handler in `generate()` doesn't trigger. The broken client persists for 5 questions until httpx's internal connection pool eventually cleans itself up.
+
+**Fix for R4:** Reset the httpx client at the start of every eval run. Add `await close_client()` as the first line of `run_eval()`. This guarantees a completely fresh client with an empty connection pool for every run, regardless of what previous requests did to it.
+
+### New Issue 2 — False Refusals (q008, q010, q012, q014, q015)
+
+> **Learning note:** These 5 questions should have been answered but the model said
+> "REFUSED: The provided context does not contain information about...". This is the model
+> being *too honest* — it's correctly reporting that it can't find the answer in the chunks
+> it was given, but the problem is we're not giving it the right chunks. Two possible causes:
+> 1. **3,000 token context cap is too aggressive** — the relevant chunk exists but got cut off
+> 2. **Retrieval miss** — the relevant chunk simply wasn't in the top-10 results
+
+The false refusal messages:
+- q008 (sfdr): *"context does not contain information about SFDR classification of iShares Corp Bond 1-5yr"*
+- q010 (characteristics): *"context does not contain information about effective duration"*
+- q012 (characteristics): *"context does not contain information about NAV"*
+- q014 (structure): *"context does not contain information about depositary for Vanguard LifeStrategy"*
+- q015 (structure): *"context does not contain information about fund structure change for Vanguard LifeStrategy"*
+
+Note the pattern: q008/q010/q012 are all iShares Euro Corp Bond questions. q014/q015 are Vanguard LifeStrategy. These are complex multi-page documents — the specific facts (SFDR classification, depositary name) may appear only in specific sections that didn't rank highly in retrieval.
+
+**Possible fixes:**
+1. Raise context cap back to 4,000 tokens — gives more room for relevant chunks
+2. Increase `top_k` from 10 to 15 or 20 for these question types
+3. Section-aware retrieval: prefer chunks from specific document sections (e.g. "Fund Details", "Legal")
+
+### Per-Question Detail (R3)
+
+| ID | Category | Should Refuse | Hit@k | Confidence | Gen (s) | Grounded | Refusal OK | Error |
+|---|---|---|---|---|---|---|---|---|
+| q001 | ocf | No | — | refused | — | ❌ | ❌ | RuntimeError: client closed |
+| q002 | risk_rating | No | — | refused | — | ❌ | ❌ | RuntimeError: client closed |
+| q003 | charges | No | — | refused | — | ❌ | ❌ | RuntimeError: client closed |
+| q004 | charges | No | — | refused | — | ❌ | ❌ | RuntimeError: client closed |
+| q005 | risk_rating | No | — | refused | — | ❌ | ❌ | RuntimeError: client closed |
+| q006 | ocf | No | 1.0 | medium | 124 | ✅ | ✅ | — |
+| q007 | ocf | No | 1.0 | low | 128 | ✅ | ✅ | — |
+| q008 | sfdr | No | 1.0 | refused | 141 | ❌ | ❌ | False refusal |
+| q009 | characteristics | No | 1.0 | low | 161 | ✅ | ✅ | — |
+| q010 | characteristics | No | 1.0 | refused | 83 | ❌ | ❌ | False refusal |
+| q011 | benchmark | No | 1.0 | medium | 96 | ✅ | ✅ | — |
+| q012 | characteristics | No | 1.0 | refused | 70 | ❌ | ❌ | False refusal |
+| q013 | structure | No | — | medium | 94 | ✅ | ✅ | — |
+| q014 | structure | No | — | refused | 131 | ❌ | ❌ | False refusal |
+| q015 | structure | No | — | refused | 125 | ❌ | ❌ | False refusal |
+| q016 | regulation | No | — | medium | 126 | ✅ | ✅ | — |
+| q017 | characteristics | No | 1.0 | medium | 128 | ✅ | ✅ | — |
+| q018 | ocf | **Yes** | — | refused | 102 | ❌ | ✅ | Correctly refused |
+| q019 | off_topic | **Yes** | — | refused | 124 | ❌ | ✅ | Correctly refused |
+| q020 | esg | **Yes** | 0.0 | refused | 90 | ❌ | ✅ | Correctly refused |
+
+---
+
+## R4 — Recommendations (pending run)
+
+### Fixes to implement
+
+1. **Reset httpx client at run start** — add `await close_client()` as first line of `run_eval()`. Eliminates the stale connection pool bug that killed q001–q005.
+2. **Raise context cap to 4,000 tokens** — increase `_MAX_CONTEXT_TOKENS` from 3,000 back toward 4,000. The 3,000 cap may be cutting off chunks that contain SFDR classifications, depositaries, and structure details.
+3. **Investigate false refusal questions** — check what chunks are actually retrieved for q008, q010, q012, q014, q015. If the relevant chunk isn't in top-10, the retrieval (not the LLM) is the problem.
+
+### Expected R4 results (if fixes work)
+
+| Metric | R3 | Expected R4 |
 |---|---|---|
-| Time per question | 181–293s | ~100–120s |
-| Total run time | ~10 hours (stalled) | ~35–40 minutes |
-| Hit@k | 91.7% | ~90%+ (unchanged) |
-| Grounding rate | 0.0% | ≥50% (numbered citations) |
-| Errors | 3 ReadTimeouts + 1 stall | 0 expected |
-| Avg generation | ~216s | ~50s |
-
-### Next if grounding is still low
-
-> **Learning note:** If Run 3 still shows 0% grounding it means the model is still not
-> writing `[1]`, `[2]` even with the improved prompt. At that point the model itself is the
-> problem. Options:
-> 1. Add 3–4 more few-shot examples with realistic fund text showing exactly `[1]` citations
-> 2. Try a different model (`qwen2.5:7b` or `mistral-nemo`) — both have better structured output compliance than llama3.1:8b
-> 3. Two-pass generation: generate answer first, then in a second prompt ask the model to add citation numbers
-
-**Fix ISIN metadata filter for retrieval misses (q002, q005):**
-Add `WHERE isin = ?` to the retrieval query for questions that include a specific ISIN. This should push Hit@k from ~90% to ~95%+.
+| Errors | 5 (RuntimeError) | 0 |
+| Grounding rate | 35% | ~50–60% |
+| Refusal accuracy | 50% | ~75% (false refusals fixed) |
+| Hit@k | 88.9% | ~90% (unchanged) |
 
 ---
 
-## Quick Reference: What "Good" Looks Like
+## Quick Reference
 
-| Metric | R1 | R2 (partial) | R3 target |
-|---|---|---|---|
-| Hit@k | 85.7% | 91.7% | ≥ 90% ✅ |
-| Grounding rate | 0.0% | 0.0% | ≥ 70% |
-| Refusal accuracy | 0.0% | 75%* | ≥ 85% |
-| Errors | 20 (silent) | 3 + 1 stall | 0 |
-| Avg generation | 0ms (all failed) | ~216s | < 120s |
-| Total run time | ~63 min | ~10 hrs (stalled) | < 45 min |
+| Metric | R1 | R2 (partial) | R3 | R4 target |
+|---|---|---|---|---|
+| Hit@k | 85.7% | 91.7% | 88.9% | ≥ 90% |
+| Grounding rate | 0.0% | 0.0% | **35.0%** 🟡 | ≥ 60% |
+| Refusal accuracy | 0.0% | 75%* | 50.0% | ≥ 80% |
+| Correct refusals | 0.0% | 100%† | **100%** ✅ | 100% |
+| Errors | 20 (silent) | 3 + 1 stall | 5 (client) | 0 |
+| Avg generation | 0ms (all failed) | ~216s | ~86s ✅ | < 100s |
+| Total run time | ~63 min | ~10 hrs (stalled) | ~38 min ✅ | < 45 min |
 
-\*75% includes 3 ReadTimeout questions counted as wrong refusals. True refusal accuracy for questions that actually generated = 9/9 = 100%.
+\*R2 75% = 3 ReadTimeout questions counted as wrong refusals. True refusal accuracy for questions that generated = 9/9 = 100%.
+†R2 correct refusals: only q018–q020 assessed; q007/q008/q011 were errors not assessed.
 
 ---
 
-**The retrieval is already working well. The infrastructure problems are fixed. Run 3 should be the first clean, complete run — the question is just whether the model will follow the numbered citation format.**
+**Progress:** Infrastructure is solid. Citation format is working (35% grounding from zero). Two things left to fix: stale httpx connection pool (kills q001–q005) and false refusals (model can't find specific facts in 3,000-token context). R4 is the first realistic chance at a clean complete run.
