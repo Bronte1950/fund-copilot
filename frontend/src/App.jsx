@@ -607,11 +607,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main */}
+      {/* Main — all tabs stay mounted so state (incl. live eval polling) is preserved */}
       <main className="flex-1 p-6 lg:p-8 overflow-auto">
-        {activeTab === 'Ask'        && <AskTab />}
-        {activeTab === 'Documents'  && <DocumentBrowser />}
-        {activeTab === 'Evaluation' && <EvaluationTab />}
+        <div className={activeTab === 'Ask' ? 'h-full' : 'hidden'}><AskTab /></div>
+        <div className={activeTab === 'Documents' ? '' : 'hidden'}><DocumentBrowser /></div>
+        <div className={activeTab === 'Evaluation' ? '' : 'hidden'}><EvaluationTab /></div>
       </main>
     </div>
   )
